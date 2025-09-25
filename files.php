@@ -42,6 +42,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
             $dest = "$user_dir/" . basename($dest_name);
             if (move_uploaded_file($tmp, $dest)) {
                 $upload_success[] = "$name";
+                // Salvează în files.json
+                $files_json_path = __DIR__ . '/files.json';
+                $files_db = file_exists($files_json_path) ? json_decode(file_get_contents($files_json_path), true) : [];
+                $files_db[] = [
+                    'user' => $user,
+                    'original_name' => $name,
+                    'saved_name' => basename($dest),
+                    'size' => $size,
+                    'timestamp' => $timestamp
+                ];
+                file_put_contents($files_json_path, json_encode($files_db, JSON_PRETTY_PRINT));
             } else {
                 $upload_errors[] = "$name: Nu s-a putut salva fișierul.";
             }

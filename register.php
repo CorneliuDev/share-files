@@ -22,7 +22,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             $hash = password_hash($pass, PASSWORD_DEFAULT);
             $users[$user] = $hash;
             file_put_contents($users_file, json_encode($users, JSON_PRETTY_PRINT));
-            mkdir("public/$user");
             $_SESSION['username'] = $user;
             header('Location: files.php');
             exit();
