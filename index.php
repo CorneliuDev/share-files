@@ -8,18 +8,20 @@ $err = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
     $user = trim($_POST['username']);
     $pass = $_POST['password'];
-    if ($user && $pass && file_exists("users/$user.txt")) {
-        $hash = trim(file_get_contents("users/$user.txt"));
-        if (password_verify($pass, $hash)) {
-            $_SESSION['username'] = $user;
-            header('Location: files.php');
-            exit();
+        $users_file = __DIR__ . '/users.json';
+        $users = file_exists($users_file) ? json_decode(file_get_contents($users_file), true) : [];
+        if (isset($users[$user])) {
+            $hash = $users[$user];
+            if (password_verify($pass, $hash)) {
+                $_SESSION['username'] = $user;
+                header('Location: files.php');
+                exit();
+            } else {
+                $err = 'Parolă incorectă!';
+            }
         } else {
-            $err = 'Parolă incorectă!';
+            $err = 'Utilizator inexistent!';
         }
-    } else {
-        $err = 'Utilizator inexistent!';
-    }
 }
 ?>
 <!DOCTYPE html>

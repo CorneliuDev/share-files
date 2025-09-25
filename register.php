@@ -13,15 +13,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
         $err = 'Completează toate câmpurile!';
     } elseif ($pass !== $pass2) {
         $err = 'Parolele nu coincid!';
-    } elseif (file_exists("users/$user.txt")) {
-        $err = 'Utilizator deja existent!';
     } else {
-        $hash = password_hash($pass, PASSWORD_DEFAULT);
-        file_put_contents("users/$user.txt", $hash);
-        mkdir("public/$user");
-        $_SESSION['username'] = $user;
-        header('Location: files.php');
-        exit();
+        $users_file = __DIR__ . '/users.json';
+        $users = file_exists($users_file) ? json_decode(file_get_contents($users_file), true) : [];
+        if (isset($users[$user])) {
+            $err = 'Utilizator deja existent!';
+        } else {
+            $hash = password_hash($pass, PASSWORD_DEFAULT);
+            $users[$user] = $hash;
+            file_put_contents($users_file, json_encode($users, JSON_PRETTY_PRINT));
+            mkdir("public/$user");
+            $_SESSION['username'] = $user;
+            header('Location: files.php');
+            exit();
+        }
     }
 }
 ?>
