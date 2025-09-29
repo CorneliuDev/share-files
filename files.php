@@ -42,16 +42,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
             $dest = "$user_dir/" . basename($dest_name);
             if (move_uploaded_file($tmp, $dest)) {
                 $upload_success[] = "$name";
-                // Salvează în files.json
+                // Salvează în files.json - MODIFICAT
                 $files_json_path = __DIR__ . '/files.json';
                 $files_db = file_exists($files_json_path) ? json_decode(file_get_contents($files_json_path), true) : [];
-                $files_db[] = [
-                    'user' => $user,
-                    'original_name' => $name,
-                    'saved_name' => basename($dest),
-                    'size' => $size,
-                    'timestamp' => $timestamp
-                ];
+                if (!isset($files_db[$user])) {
+                    $files_db[$user] = [];
+                }
+                $files_db[$user][] = basename($dest);
                 file_put_contents($files_json_path, json_encode($files_db, JSON_PRETTY_PRINT));
             } else {
                 $upload_errors[] = "$name: Nu s-a putut salva fișierul.";
@@ -71,6 +68,16 @@ if (isset($_GET['del'])) {
     $path = "$user_dir/$file";
     if (is_file($path)) {
         unlink($path);
+        // Șterge fișierul și din files.json
+        $files_json_path = __DIR__ . '/files.json';
+        $files_db = file_exists($files_json_path) ? json_decode(file_get_contents($files_json_path), true) : [];
+        if (isset($files_db[$user])) {
+            $idx = array_search($file, $files_db[$user]);
+            if ($idx !== false) {
+                array_splice($files_db[$user], $idx, 1);
+                file_put_contents($files_json_path, json_encode($files_db, JSON_PRETTY_PRINT));
+            }
+        }
         $success = 'Fișier șters!';
     }
 }
@@ -87,11 +94,54 @@ if (isset($_GET['down'])) {
         exit();
     }
 }
+// Preia lista de utilizatori din files.json
+$files_json_path = __DIR__ . '/files.json';
+$files_db = file_exists($files_json_path) ? json_decode(file_get_contents($files_json_path), true) : [];
+$all_users = array_keys($files_db);
+
 $all_files = array_diff(scandir($user_dir), ['.','..']);
 $files = [];
 foreach ($all_files as $f) {
     if (strpos($f, $user . '_') === 0) {
         $files[] = $f;
+    }
+}
+
+// Procesare partajare fișier
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['share_file']) && isset($_POST['share_users'])) {
+    $share_file = basename($_POST['share_file']);
+    $share_users = $_POST['share_users'];
+    $src_path = "$user_dir/$share_file";
+    if (is_file($src_path)) {
+        foreach ($share_users as $target_user) {
+            if ($target_user === $user) continue; // nu partaja către tine
+            $target_dir = $user_dir;
+            if (!is_dir($target_dir)) mkdir($target_dir);
+            // Extrage numele original din fișierul sursă
+            $pattern = '/^' . preg_quote($user, '/') . '_(.+)_\d{8}_\d{6}(\.[^.]+)?$/';
+            if (preg_match($pattern, $share_file, $matches)) {
+                $original_name = $matches[1] . (isset($matches[2]) ? $matches[2] : '');
+            } else {
+                $original_name = $share_file;
+            }
+            $timestamp = date('Ymd_His');
+            // Creează nume nou: targetuser_originalname_timestamp.ext
+            $ext = pathinfo($original_name, PATHINFO_EXTENSION);
+            $base_name = pathinfo($original_name, PATHINFO_FILENAME);
+            $dest_name = $target_user . "_" . $base_name . "_" . $timestamp . ($ext ? "." . $ext : "");
+            $dest_path = "$target_dir/" . basename($dest_name);
+            copy($src_path, $dest_path);
+            // Salvează în files.json
+            $files_db = file_exists($files_json_path) ? json_decode(file_get_contents($files_json_path), true) : [];
+            if (!isset($files_db[$target_user])) {
+                $files_db[$target_user] = [];
+            }
+            $files_db[$target_user][] = basename($dest_path);
+            file_put_contents($files_json_path, json_encode($files_db, JSON_PRETTY_PRINT));
+        }
+        $success = "Fișierul a fost partajat!";
+    } else {
+        $err = "Fișierul nu există!";
     }
 }
 ?>
@@ -101,6 +151,7 @@ foreach ($all_files as $f) {
     <meta charset="UTF-8">
     <title>Fișierele mele</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 <body class="bg-light">
 <div class="container mt-4">
@@ -139,11 +190,60 @@ foreach ($all_files as $f) {
                 <td>
                     <a href="?down=<?= urlencode($f) ?>" class="btn btn-sm btn-success">Descarcă</a>
                     <a href="?del=<?= urlencode($f) ?>" class="btn btn-sm btn-danger" onclick="return confirm('Ștergi fișierul?')">Șterge</a>
+                    <button type="button" class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#shareModal" data-file="<?= htmlspecialchars($f) ?>">Share</button>
                 </td>
             </tr>
         <?php endforeach; ?>
         </tbody>
     </table>
 </div>
+
+<!-- Modal Share -->
+<div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="shareForm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="shareModalLabel">Partajează fișierul</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Închide"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="share_file" id="share_file_input" value="">
+          <div class="mb-3">
+            <label for="share_users" class="form-label">Alege utilizatori:</label>
+            <div style="max-height:200px;overflow-y:auto;">
+              <?php foreach ($all_users as $u): ?>
+                <?php if ($u !== $user): ?>
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="share_users[]" value="<?= htmlspecialchars($u) ?>" id="user_<?= htmlspecialchars($u) ?>">
+                    <label class="form-check-label" for="user_<?= htmlspecialchars($u) ?>">
+                      <?= htmlspecialchars($u) ?>
+                    </label>
+                  </div>
+                <?php endif; ?>
+              <?php endforeach; ?>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-success">Trimite</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var shareModal = document.getElementById('shareModal');
+    shareModal.addEventListener('show.bs.modal', function (event) {
+        var button = event.relatedTarget;
+        var file = button.getAttribute('data-file');
+        document.getElementById('share_file_input').value = file;
+        // Deselectează toți utilizatorii la deschidere
+        var checks = shareModal.querySelectorAll('input[type=checkbox]');
+        checks.forEach(function(chk){ chk.checked = false; });
+    });
+});
+</script>
 </body>
 </html>
